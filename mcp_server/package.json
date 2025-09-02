@@ -4,6 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "ts-node src/server.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -20,6 +23,8 @@
   "homepage": "https://github.com/alokdangre/MCP_hack#readme",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.4",
+    "@slack/web-api": "^7.10.0",
+    "@types/node": "^24.3.0",
     "axios": "^1.11.0",
     "body-parser": "^2.2.0",
     "dotenv": "^17.2.1",
@@ -28,7 +33,9 @@
     "jwks-rsa": "^3.2.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.2",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.0",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.24.6"
   },
   "devDependencies": {
     "@types/express": "^5.0.3"

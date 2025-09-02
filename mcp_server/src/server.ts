@@ -1,71 +1,723 @@
-import express, { Request, Response } from "express";
-import cors from "cors";
-import { randomUUID } from "node:crypto";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { z } from "zod";
+#!/usr/bin/env node
+/* eslint-disable no-console */
+/**
+ * Slack MCP Server (TypeScript)
+ * - HTTP transport only (stdio removed)
+ * - Uses @modelcontextprotocol/sdk Server + StreamableHTTPServerTransport
+ * - Slack Web API via @slack/web-api
+ */
 
-const app = express();
-app.use(express.json());
+import {
+  ListToolsRequestSchema,
+  CallToolRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js';
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { zodToJsonSchema } from 'zod-to-json-schema';
+import { WebClient } from '@slack/web-api';
+import dotenv from 'dotenv';
+import express, { type Request, type Response } from 'express';
+import { randomUUID } from 'node:crypto';
 
-// CORS: expose the Mcp-Session-Id header to browsers
-app.use(cors({
-  origin: "*", // lock down in prod
-  exposedHeaders: ["Mcp-Session-Id"],
-  allowedHeaders: ["Content-Type", "Mcp-Session-Id", "mcp-session-id"],
-}));
+import {
+  ListChannelsRequestSchema,
+  PostMessageRequestSchema,
+  ReplyToThreadRequestSchema,
+  AddReactionRequestSchema,
+  GetChannelHistoryRequestSchema,
+  GetThreadRepliesRequestSchema,
+  GetUsersRequestSchema,
+  GetUserProfilesRequestSchema,
+  ListChannelsResponseSchema,
+  GetUsersResponseSchema,
+  GetUserProfilesResponseSchema,
+  UserProfileResponseSchema,
+  SearchMessagesRequestSchema,
+  SearchMessagesResponseSchema,
+  SearchChannelsRequestSchema,
+  SearchUsersRequestSchema,
+  ConversationsHistoryResponseSchema,
+  ConversationsRepliesResponseSchema,
+} from './types/slack-schemas.js';
 
-// Create MCP server and register tools/resources/prompts
-const mcp = new McpServer({ name: "my-mcp-server", version: "1.0.0" });
+dotenv.config();
 
-// Keep track of transports per session id
-const transports: Record<string, StreamableHTTPServerTransport> = {};
+/* ---------- sanity checks ---------- */
+if (!process.env.SLACK_BOT_TOKEN) {
+  console.error(
+    'SLACK_BOT_TOKEN is not set. Please set it in your environment or .env file.'
+  );
+  process.exit(1);
+}
 
-// Main MCP endpoint — handles POST, GET, DELETE, etc. per Streamable HTTP spec
-app.all("/mcp", async (req: Request, res: Response) => {
-  try {
-    // If this is an initialization request, create a transport with session management
-    // The SDK exposes helpers like isInitializeRequest but we can use header logic:
-    const maybeSessionId = (req.headers["mcp-session-id"] || req.headers["Mcp-Session-Id"]) as string | undefined;
+if (!process.env.SLACK_USER_TOKEN) {
+  console.error(
+    'SLACK_USER_TOKEN is not set. Please set it in your environment or .env file.'
+  );
+  process.exit(1);
+}
 
-    // If no session id, this may be an initialization (the SDK can also detect init internally).
-    // Create a new transport instance per session and store it.
-    const transport = new StreamableHTTPServerTransport({
-      // sessionIdGenerator ensures server-side session ids (security + resume)
-      sessionIdGenerator: () => randomUUID(),
-      // Enable DNS rebinding protection for public-facing servers (see notes)
-      enableDnsRebindingProtection: true,
-      allowedHosts: ["127.0.0.1", "localhost"],
-      // allow origins you expect in production
-      allowedOrigins: ["https://yourdomain.com"],
-    });
+const slackClient = new WebClient(process.env.SLACK_BOT_TOKEN);
+const userClient = new WebClient(process.env.SLACK_USER_TOKEN);
 
-    // wire up close handling to remove the transport when done
-    transport.onclose = () => {
-      if (transport.sessionId) delete transports[transport.sessionId];
-    };
+/* Safe search mode to exclude private channels and DMs */
+const safeSearchMode = process.env.SLACK_SAFE_SEARCH === 'true';
+if (safeSearchMode) {
+  console.error(
+    'Safe search mode enabled: Private channels and DMs will be excluded from search results'
+  );
+}
 
-    // Register this transport for the session so future requests (with Mcp-Session-Id) can find it
-    if (transport.sessionId) transports[transport.sessionId] = transport;
+/* ---------- CLI args ---------- */
+function parseArguments() {
+  const args = process.argv.slice(2);
+  let port: number | undefined;
 
-    // Connect the McpServer (registers tools/resources with this transport)
-    await mcp.connect(transport);
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '-port' && i + 1 < args.length) {
+      const portValue = parseInt(args[i + 1] || '', 10);
+      if (isNaN(portValue) || portValue <= 0 || portValue > 65535) {
+        console.error(`Invalid port number: ${args[i + 1] || ''}`);
+        process.exit(1);
+      }
+      port = portValue;
+      i++; // skip port value
+    } else if (args[i] === '--help' || args[i] === '-h') {
+      console.log(`
+Usage: slack-mcp-server [options]
 
-    // The SDK transport expects to be handed the express request/response (and body for POST)
-    // Note: the example shows `await transport.handleRequest(req, res, req.body)`
-    await transport.handleRequest(req, res, req.body);
-    // transport will stream and finish the response as needed (streamable or batch)
-  } catch (err) {
-    console.error("MCP handler error:", err);
-    if (!res.headersSent) {
-      res.status(500).json({
-        jsonrpc: "2.0",
-        error: { code: -32603, message: String(err) },
-        id: null,
-      });
+Options:
+  -port <number>    Start the server with Streamable HTTP transport on the specified port
+  -h, --help        Show this help message
+
+Examples:
+  slack-mcp-server -port 3000       # Start with Streamable HTTP transport on port 3000
+`);
+      process.exit(0);
+    } else if (args[i]?.startsWith('-')) {
+      console.error(`Unknown option: ${args[i] || ''}`);
+      console.error('Use --help for usage information');
+      process.exit(1);
     }
   }
-});
 
-const PORT = Number(process.env.PORT || 3000);
-app.listen(PORT, () => console.log(`MCP Streamable HTTP server listening on ${PORT}`));
+  return { port };
+}
+
+/* ---------- MCP Server factory ---------- */
+function createServer(): Server {
+  const server = new Server(
+    {
+      name: 'slack-mcp-server',
+      version: '0.0.1',
+    },
+    {
+      capabilities: {
+        tools: {},
+      },
+    }
+  );
+
+  // List tools - reply with JSON schemas generated from Zod
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    return {
+      tools: [
+        {
+          name: 'slack_list_channels',
+          description: 'List public channels in the workspace with pagination',
+          inputSchema: zodToJsonSchema(ListChannelsRequestSchema),
+        },
+        {
+          name: 'slack_post_message',
+          description: 'Post a new message to a Slack channel',
+          inputSchema: zodToJsonSchema(PostMessageRequestSchema),
+        },
+        {
+          name: 'slack_reply_to_thread',
+          description: 'Reply to a specific message thread in Slack',
+          inputSchema: zodToJsonSchema(ReplyToThreadRequestSchema),
+        },
+        {
+          name: 'slack_add_reaction',
+          description: 'Add a reaction emoji to a message',
+          inputSchema: zodToJsonSchema(AddReactionRequestSchema),
+        },
+        {
+          name: 'slack_get_channel_history',
+          description:
+            'Get messages from a channel in chronological order. Use this when: 1) You need the latest conversation flow without specific filters, 2) You want ALL messages including bot/automation messages, 3) You need to browse messages sequentially with pagination. Do NOT use if you have specific search criteria (user, keywords, dates) - use slack_search_messages instead.',
+          inputSchema: zodToJsonSchema(GetChannelHistoryRequestSchema),
+        },
+        {
+          name: 'slack_get_thread_replies',
+          description: 'Get all replies in a message thread',
+          inputSchema: zodToJsonSchema(GetThreadRepliesRequestSchema),
+        },
+        {
+          name: 'slack_get_users',
+          description:
+            'Retrieve basic profile information of all users in the workspace',
+          inputSchema: zodToJsonSchema(GetUsersRequestSchema),
+        },
+        {
+          name: 'slack_get_user_profiles',
+          description: 'Get multiple users profile information in bulk',
+          inputSchema: zodToJsonSchema(GetUserProfilesRequestSchema),
+        },
+        {
+          name: 'slack_search_messages',
+          description:
+            'Search for messages with specific criteria/filters. Use this when: 1) You need to find messages from a specific user, 2) You need messages from a specific date range, 3) You need to search by keywords, 4) You want to filter by channel. This tool is optimized for targeted searches. For general channel browsing without filters, use slack_get_channel_history instead.',
+          inputSchema: zodToJsonSchema(SearchMessagesRequestSchema),
+        },
+        {
+          name: 'slack_search_channels',
+          description:
+            'Search for channels by partial name match. Use this when you need to find channels containing specific keywords in their names. Returns up to the specified limit of matching channels.',
+          inputSchema: zodToJsonSchema(SearchChannelsRequestSchema),
+        },
+        {
+          name: 'slack_search_users',
+          description:
+            'Search for users by partial name match across username, display name, and real name. Use this when you need to find users containing specific keywords in their names. Returns up to the specified limit of matching users.',
+          inputSchema: zodToJsonSchema(SearchUsersRequestSchema),
+        },
+      ],
+    };
+  });
+
+  // Main tool call handler
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    try {
+      if (!request.params) {
+        throw new Error('Params are required');
+      }
+      switch (request.params.name) {
+        case 'slack_list_channels': {
+          const args = ListChannelsRequestSchema.parse(
+            request.params.arguments
+          );
+          const listParams: { limit: number; types: string; cursor?: string } = {
+            limit: args.limit,
+            types: 'public_channel', // Only public channels
+          };
+          if (args.cursor) {
+            listParams.cursor = args.cursor;
+          }
+          const response = await slackClient.conversations.list(listParams);
+          if (!response.ok) {
+            throw new Error(`Failed to list channels: ${response.error || 'Unknown error'}`);
+          }
+          const parsed = ListChannelsResponseSchema.parse(response);
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(parsed) }],
+          };
+        }
+
+        case 'slack_post_message': {
+          const args = PostMessageRequestSchema.parse(request.params.arguments);
+          const response = await slackClient.chat.postMessage({
+            channel: args.channel_id,
+            text: args.text,
+          });
+          if (!response.ok) {
+            throw new Error(`Failed to post message: ${response.error || 'Unknown error'}`);
+          }
+          return {
+            content: [{ type: 'text', text: 'Message posted successfully' }],
+          };
+        }
+
+        case 'slack_reply_to_thread': {
+          const args = ReplyToThreadRequestSchema.parse(
+            request.params.arguments
+          );
+          const response = await slackClient.chat.postMessage({
+            channel: args.channel_id,
+            thread_ts: args.thread_ts,
+            text: args.text,
+          });
+          if (!response.ok) {
+            throw new Error(`Failed to reply to thread: ${response.error || 'Unknown error'}`);
+          }
+          return {
+            content: [
+              { type: 'text', text: 'Reply sent to thread successfully' },
+            ],
+          };
+        }
+
+        case 'slack_add_reaction': {
+          const args = AddReactionRequestSchema.parse(request.params.arguments);
+          const response = await slackClient.reactions.add({
+            channel: args.channel_id,
+            timestamp: args.timestamp,
+            name: args.reaction,
+          });
+          if (!response.ok) {
+            throw new Error(`Failed to add reaction: ${response.error || 'Unknown error'}`);
+          }
+          return {
+            content: [{ type: 'text', text: 'Reaction added successfully' }],
+          };
+        }
+
+        case 'slack_get_channel_history': {
+          const args = GetChannelHistoryRequestSchema.parse(
+            request.params.arguments
+          );
+          const historyParams: { channel: string; limit: number; cursor?: string } = {
+            channel: args.channel_id,
+            limit: args.limit,
+          };
+          if (args.cursor) {
+            historyParams.cursor = args.cursor;
+          }
+          const response = await slackClient.conversations.history(historyParams);
+          if (!response.ok) {
+            throw new Error(`Failed to get channel history: ${response.error || 'Unknown error'}`);
+          }
+          const parsedResponse =
+            ConversationsHistoryResponseSchema.parse(response);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(parsedResponse) }],
+          };
+        }
+
+        case 'slack_get_thread_replies': {
+          const args = GetThreadRepliesRequestSchema.parse(
+            request.params.arguments
+          );
+          const repliesParams: { channel: string; ts: string; limit: number; cursor?: string } = {
+            channel: args.channel_id,
+            ts: args.thread_ts,
+            limit: args.limit,
+          };
+          if (args.cursor) {
+            repliesParams.cursor = args.cursor;
+          }
+          const response = await slackClient.conversations.replies(repliesParams);
+          if (!response.ok) {
+            throw new Error(`Failed to get thread replies: ${response.error || 'Unknown error'}`);
+          }
+          const parsedResponse =
+            ConversationsRepliesResponseSchema.parse(response);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(parsedResponse) }],
+          };
+        }
+
+        case 'slack_get_users': {
+          const args = GetUsersRequestSchema.parse(request.params.arguments);
+          const usersParams: { limit: number; cursor?: string } = {
+            limit: args.limit,
+          };
+          if (args.cursor) {
+            usersParams.cursor = args.cursor;
+          }
+          const response = await slackClient.users.list(usersParams);
+          if (!response.ok) {
+            throw new Error(`Failed to get users: ${response.error || 'Unknown error'}`);
+          }
+          const parsed = GetUsersResponseSchema.parse(response);
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(parsed) }],
+          };
+        }
+
+        case 'slack_get_user_profiles': {
+          const args = GetUserProfilesRequestSchema.parse(
+            request.params.arguments
+          );
+
+          const profilePromises = args.user_ids.map(async (userId: string) => {
+            try {
+              const response = await slackClient.users.profile.get({
+                user: userId,
+              });
+              if (!response.ok) {
+                return {
+                  user_id: userId,
+                  error: response.error || 'Unknown error',
+                };
+              }
+              const parsed = UserProfileResponseSchema.parse(response);
+              return {
+                user_id: userId,
+                profile: parsed.profile,
+              };
+            } catch (error) {
+              return {
+                user_id: userId,
+                error: error instanceof Error ? error.message : 'Unknown error',
+              };
+            }
+          });
+
+          const results = await Promise.all(profilePromises);
+          const responseData = GetUserProfilesResponseSchema.parse({
+            profiles: results,
+          });
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(responseData) }],
+          };
+        }
+
+        case 'slack_search_messages': {
+          const parsedParams = SearchMessagesRequestSchema.parse(
+            request.params.arguments
+          );
+
+          let query = parsedParams.query || '';
+
+          if (parsedParams.in_channel) {
+            const channelInfo = await slackClient.conversations.info({
+              channel: parsedParams.in_channel,
+            });
+            if (!channelInfo.ok || !channelInfo.channel?.name) {
+              throw new Error(
+                `Failed to get channel info: ${channelInfo.error || 'Unknown error'}`
+              );
+            }
+            query += ` in:${channelInfo.channel.name}`;
+          }
+
+          if (parsedParams.from_user) {
+            query += ` from:<@${parsedParams.from_user}>`;
+          }
+
+          if (parsedParams.before) {
+            query += ` before:${parsedParams.before}`;
+          }
+          if (parsedParams.after) {
+            query += ` after:${parsedParams.after}`;
+          }
+          if (parsedParams.on) {
+            query += ` on:${parsedParams.on}`;
+          }
+          if (parsedParams.during) {
+            query += ` during:${parsedParams.during}`;
+          }
+
+          query = query.trim();
+          console.log('Search query:', query);
+
+          const searchParams: { 
+            query: string; 
+            count: number; 
+            page: number;
+            highlight?: boolean;
+            sort?: 'score' | 'timestamp';
+            sort_dir?: 'asc' | 'desc';
+          } = {
+            query: query,
+            count: parsedParams.count,
+            page: parsedParams.page,
+          };
+          if (parsedParams.highlight !== undefined) {
+            searchParams.highlight = parsedParams.highlight;
+          }
+          if (parsedParams.sort !== undefined) {
+            searchParams.sort = parsedParams.sort;
+          }
+          if (parsedParams.sort_dir !== undefined) {
+            searchParams.sort_dir = parsedParams.sort_dir;
+          }
+          const response = await userClient.search.messages(searchParams);
+
+          if (!response.ok) {
+            throw new Error(`Failed to search messages: ${response.error || 'Unknown error'}`);
+          }
+
+          if (safeSearchMode && response.messages?.matches) {
+            const originalCount = response.messages.matches.length;
+            response.messages.matches = response.messages.matches.filter(
+              (msg: {
+                channel?: {
+                  is_private?: boolean;
+                  is_im?: boolean;
+                  is_mpim?: boolean;
+                };
+              }) => {
+                const channel = msg.channel;
+                if (!channel) return true;
+                return !(channel.is_private || channel.is_im || channel.is_mpim);
+              }
+            );
+
+            const filteredCount =
+              originalCount - response.messages.matches.length;
+            if (filteredCount > 0) {
+              console.error(
+                `Safe search: Filtered out ${filteredCount} messages from private channels/DMs`
+              );
+            }
+          }
+
+          const parsed = SearchMessagesResponseSchema.parse(response);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(parsed) }],
+          };
+        }
+
+        case 'slack_search_channels': {
+          const args = SearchChannelsRequestSchema.parse(
+            request.params.arguments
+          );
+
+          const allChannels: Array<{
+            id?: string;
+            name?: string;
+            is_archived?: boolean;
+            [key: string]: unknown;
+          }> = [];
+          let cursor: string | undefined;
+          const maxPages = 5;
+          let pageCount = 0;
+
+          while (pageCount < maxPages) {
+            const channelListParams: { 
+              types: string; 
+              exclude_archived: boolean; 
+              limit: number; 
+              cursor?: string;
+            } = {
+              types: 'public_channel',
+              exclude_archived: !args.include_archived,
+              limit: 1000,
+            };
+            if (cursor) {
+              channelListParams.cursor = cursor;
+            }
+            const response = await slackClient.conversations.list(channelListParams);
+
+            if (!response.ok) {
+              throw new Error(`Failed to search channels: ${response.error || 'Unknown error'}`);
+            }
+
+            if (response.channels) {
+              allChannels.push(...(response.channels as typeof allChannels));
+            }
+
+            cursor = response.response_metadata?.next_cursor;
+            pageCount++;
+
+            if (!cursor) break;
+          }
+
+          const searchTerm = args.query.toLowerCase();
+          const filteredChannels = allChannels.filter((channel) =>
+            channel.name?.toLowerCase().includes(searchTerm)
+          );
+
+          const limitedChannels = filteredChannels.slice(0, args.limit);
+
+          const response = {
+            ok: true,
+            channels: limitedChannels,
+          };
+
+          const parsed = ListChannelsResponseSchema.parse(response);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(parsed) }],
+          };
+        }
+
+        case 'slack_search_users': {
+          const args = SearchUsersRequestSchema.parse(request.params.arguments);
+
+          const allUsers: Array<{
+            id?: string;
+            name?: string;
+            real_name?: string;
+            is_bot?: boolean;
+            profile?: {
+              display_name?: string;
+              display_name_normalized?: string;
+              [key: string]: unknown;
+            };
+            [key: string]: unknown;
+          }> = [];
+          let cursor: string | undefined;
+          const maxPages = 5;
+          let pageCount = 0;
+
+          while (pageCount < maxPages) {
+            const userListParams: { limit: number; cursor?: string } = {
+              limit: 1000,
+            };
+            if (cursor) {
+              userListParams.cursor = cursor;
+            }
+            const response = await slackClient.users.list(userListParams);
+
+            if (!response.ok) {
+              throw new Error(`Failed to search users: ${response.error || 'Unknown error'}`);
+            }
+
+            if (response.members) {
+              allUsers.push(...(response.members as typeof allUsers));
+            }
+
+            cursor = response.response_metadata?.next_cursor;
+            pageCount++;
+
+            if (!cursor) break;
+          }
+
+          const searchTerm = args.query.toLowerCase();
+          const filteredUsers = allUsers.filter((user) => {
+            if (!args.include_bots && user.is_bot) {
+              return false;
+            }
+
+            const name = user.name?.toLowerCase() || '';
+            const realName = user.real_name?.toLowerCase() || '';
+            const displayName = user.profile?.display_name?.toLowerCase() || '';
+            const displayNameNormalized =
+              user.profile?.display_name_normalized?.toLowerCase() || '';
+
+            return (
+              name.includes(searchTerm) ||
+              realName.includes(searchTerm) ||
+              displayName.includes(searchTerm) ||
+              displayNameNormalized.includes(searchTerm)
+            );
+          });
+
+          const limitedUsers = filteredUsers.slice(0, args.limit);
+
+          const response = {
+            ok: true,
+            members: limitedUsers,
+          };
+
+          const parsed = GetUsersResponseSchema.parse(response);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(parsed) }],
+          };
+        }
+
+        default:
+          throw new Error(`Unknown tool: ${request.params.name}`);
+      }
+    } catch (error) {
+      console.error('Error handling request:', error);
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error occurred';
+      throw new Error(errorMessage);
+    }
+  });
+
+  return server;
+}
+
+/* ---------- run: HTTP server only ---------- */
+async function runHttpServer(port: number) {
+  const app = express();
+  app.use(express.json());
+
+  // Map to store transports by session ID
+  const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+
+  // Handle POST requests for client-to-server communication
+  app.post('/mcp', async (req: Request, res: Response) => {
+    try {
+      const sessionId = req.headers['mcp-session-id'] as string | undefined;
+      let transport: StreamableHTTPServerTransport;
+
+      if (sessionId && transports[sessionId]) {
+        transport = transports[sessionId];
+      } else {
+        transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => randomUUID(),
+          onsessioninitialized: (newSessionId: string) => {
+            transports[newSessionId] = transport;
+            console.error(`New MCP session initialized: ${newSessionId}`);
+          },
+        });
+
+        transport.onclose = () => {
+          if (transport.sessionId) {
+            delete transports[transport.sessionId];
+            console.error(`MCP session closed: ${transport.sessionId}`);
+          }
+        };
+
+        const server = createServer();
+        await server.connect(transport);
+      }
+
+      await transport.handleRequest(req, res, req.body);
+    } catch (error) {
+      console.error('Error handling MCP request:', error);
+      if (!res.headersSent) {
+        res.status(500).json({
+          jsonrpc: '2.0',
+          error: {
+            code: -32603,
+            message: 'Internal server error',
+          },
+          id: null,
+        });
+      }
+    }
+  });
+
+  // Handle GET requests for server-to-client notifications via SSE
+  app.get('/mcp', async (req: Request, res: Response) => {
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+    if (!sessionId || !transports[sessionId]) {
+      res.status(400).send('Invalid or missing session ID');
+      return;
+    }
+
+    const transport = transports[sessionId];
+    await transport.handleRequest(req, res);
+  });
+
+  // Handle DELETE requests for session termination
+  app.delete('/mcp', async (req: Request, res: Response) => {
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+    if (!sessionId || !transports[sessionId]) {
+      res.status(400).send('Invalid or missing session ID');
+      return;
+    }
+
+    const transport = transports[sessionId];
+    await transport.handleRequest(req, res);
+  });
+
+  // Health check endpoint
+  app.get('/health', (_req: Request, res: Response) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
+  app.listen(port, () => {
+    console.error(
+      `Slack MCP Server running on Streamable HTTP at http://localhost:${port}/mcp`
+    );
+    console.error(`Health check available at http://localhost:${port}/health`);
+  });
+}
+
+/* ---------- main ---------- */
+async function main() {
+  const { port } = parseArguments();
+
+  if (port !== undefined) {
+    await runHttpServer(port);
+  } else {
+    console.error('Error: Port is required. Use -port <number> to specify the port.');
+    console.error('Use --help for usage information');
+    process.exit(1);
+  }
+}
+
+main().catch((error) => {
+  console.error('Fatal error in main():', error);
+  process.exit(1);
+});

@@ -1,6 +1,6 @@
 // src/tools/calendar.ts
 import axios from "axios";
-import { getOutboundAccessToken } from "../helpers/descope";
+import { getOutboundAccessToken } from "../helpers/descope.js";
 
 export type CalendarCreateInput = {
   calendarId?: string; // default "primary"

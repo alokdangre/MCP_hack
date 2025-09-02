@@ -1,6 +1,6 @@
 // src/tools/slack.ts
 import axios from "axios";
-import { getOutboundAccessToken } from "../helpers/descope";
+import { getOutboundAccessToken } from "../helpers/descope.js";
 
 export type SlackPostInput = {
   channel: string;           // channel id or name (#channel)
