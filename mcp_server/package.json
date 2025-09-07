@@ -4,6 +4,7 @@
   "description": "",
   "scripts": {
     "start": "npm run build && npm run start:node",
+    "server": "npm run build && npm run start:prod",
     "build": "tsc -p .",
     "start:prod": "node dist/http-server.js",
     "start:node": "node dist/gateway.js"
