@@ -49,14 +49,14 @@ function getClient() {
   return new SlackClient(token);
 }
 
-export async function callTool(name: string, args: any) {
+export async function callTool(name: string, args: any, server?: any) {
   const client = getClient();
   switch (name) {
     case 'slack_list_channels':
       return client.getChannels(args.limit, args.cursor);
     case 'slack_post_message':
       if (!args.channel_id || !args.text) throw new Error('Missing channel_id or text');
-      return client.postMessage(args.channel_id, args.text);
+      return client.postMessageWithElicitation(args.channel_id, args.text, server);
     case 'slack_reply_to_thread':
       if (!args.channel_id || !args.thread_ts || !args.text) throw new Error('Missing args');
       return client.postReply(args.channel_id, args.thread_ts, args.text);

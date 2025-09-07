@@ -14,7 +14,10 @@ const server = new Server(
     version: '1.0.0',
   },
   {
-    capabilities: { tools: {} },
+    capabilities: { 
+      tools: {},
+      elicitation: {}
+    },
   }
 );
 
@@ -37,7 +40,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
 
   try {
     if (toolName.startsWith('slack_')) {
-      const res = await slackService.callTool(toolName, args);
+      const res = await slackService.callTool(toolName, args, server);
       return { content: [{ type: 'text', text: JSON.stringify(res) }] };
     }
 
