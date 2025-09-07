@@ -5,6 +5,7 @@
   "scripts": {
     "start": "npm run build && npm run start:node",
     "build": "tsc -p .",
+    "start:prod": "node dist/http-server.js",
     "start:node": "node dist/gateway.js"
   },
   "repository": {
