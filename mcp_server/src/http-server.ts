@@ -4,20 +4,20 @@ import http from 'http';
 import { URL } from 'url';
 import * as slack from './services/slack/index.js';
 import * as github from './services/github/index.js';
-// import * as google from './services/google/index.js';
+import * as google from './services/google/index.js';
 
-const PORT = Number(process.env.TEST_PORT ?? 4000);
+const PORT = Number(process.env.PORT ?? 4000);
 
 // combine tools for listing
 const TOOLS = [
   ...slack.tools,
   ...github.tools,
-//   ...(google.tools ?? []),
+  ...(google.tools ?? []),
 ];
 
 function findServiceForTool(name: string) {
   if (name.startsWith('slack_')) return { service: slack, name };
-//   if (name.startsWith('google_')) return { service: google, name };
+  if (name.startsWith('google_')) return { service: google, name };
   // github had some non-prefixed names — check tools list
   if (github.toolNames?.includes(name) || name.startsWith('github_')) return { service: github, name };
   // fallback: try matching by name in TOOLS
@@ -25,7 +25,7 @@ function findServiceForTool(name: string) {
   if (found) {
     if (found.name.startsWith('slack_')) return { service: slack, name };
     if (found.name.startsWith('github_') || github.toolNames?.includes(found.name)) return { service: github, name: found.name };
-    // if (found.name.startsWith('google_')) return { service: google, name: found.name };
+    if (found.name.startsWith('google_')) return { service: google, name: found.name };
   }
   return null;
 }
