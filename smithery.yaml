@@ -1,0 +1,10 @@
+project:
+  name: mcp_hack_server
+  type: nodejs
+  root: ./mcp_server
+  build:
+    command: npm run build
+  run:
+    command: npm run server
+  env:
+    PORT: 4000
