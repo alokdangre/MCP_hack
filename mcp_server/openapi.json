@@ -1,0 +1,812 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "mcp-hack API",
+    "version": "1.0.0",
+    "description": "MCP (Model Context Protocol) unified gateway server providing HTTP endpoints for Slack and GitHub integrations.\nThis server exposes tools for managing Slack channels, messages, reactions, and GitHub repositories, files, issues, and pull requests.\n\nThe server supports elicitation for user confirmation on certain operations like posting Slack messages.\n",
+    "contact": {
+      "name": "MCP Hack API Support"
+    },
+    "license": {
+      "name": "ISC"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://mcp-hack.onrender.com",
+      "description": "Production server"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    },
+    {
+      "apiKeyHeader": []
+    }
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "operationId": "getApiInfo",
+        "summary": "Get API information",
+        "description": "Returns basic information about the MCP HTTP test server",
+        "tags": [
+          "info"
+        ],
+        "responses": {
+          "200": {
+            "description": "API information",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "example": "HTTP test server for MCP gateway\nGET  /tools -> list tools\nPOST /call -> { name, arguments }\n"
+                },
+                "examples": {
+                  "default": {
+                    "value": "HTTP test server for MCP gateway\nGET  /tools -> list tools\nPOST /call -> { name, arguments }\n"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tools": {
+      "get": {
+        "operationId": "listTools",
+        "summary": "List available tools",
+        "description": "Returns a list of all available MCP tools with their names and descriptions",
+        "tags": [
+          "mcp"
+        ],
+        "responses": {
+          "200": {
+            "description": "List of available tools",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Tool"
+                  }
+                },
+                "examples": {
+                  "default": {
+                    "value": [
+                      {
+                        "name": "slack_list_channels",
+                        "description": "List public or pre-defined channels in the workspace with pagination"
+                      },
+                      {
+                        "name": "slack_post_message",
+                        "description": "Post a new message to a Slack channel"
+                      },
+                      {
+                        "name": "github_create_repository",
+                        "description": "Create a new GitHub repository"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/call": {
+      "post": {
+        "operationId": "callTool",
+        "summary": "Execute an MCP tool",
+        "description": "Execute a specific MCP tool by name with provided arguments.\nSupports both Slack and GitHub operations with elicitation for user confirmation where applicable.\n",
+        "tags": [
+          "mcp"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolCallRequest"
+              },
+              "examples": {
+                "slack_post_message": {
+                  "summary": "Post a Slack message",
+                  "value": {
+                    "name": "slack_post_message",
+                    "arguments": {
+                      "channel_id": "C1234567890",
+                      "text": "Hello, World!"
+                    }
+                  }
+                },
+                "slack_list_channels": {
+                  "summary": "List Slack channels",
+                  "value": {
+                    "name": "slack_list_channels",
+                    "arguments": {
+                      "limit": 50
+                    }
+                  }
+                },
+                "github_create_repository": {
+                  "summary": "Create GitHub repository",
+                  "value": {
+                    "name": "create_repository",
+                    "arguments": {
+                      "name": "my-new-repo",
+                      "description": "A new repository",
+                      "private": false
+                    }
+                  }
+                },
+                "github_get_file_contents": {
+                  "summary": "Get file contents",
+                  "value": {
+                    "name": "get_file_contents",
+                    "arguments": {
+                      "owner": "octocat",
+                      "repo": "Hello-World",
+                      "path": "README.md"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Tool execution successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolCallResponse"
+                },
+                "examples": {
+                  "slack_success": {
+                    "summary": "Slack message posted successfully",
+                    "value": {
+                      "ok": true,
+                      "result": {
+                        "ok": true,
+                        "channel": "C1234567890",
+                        "ts": "1234567890.123456",
+                        "message": "Message posted successfully after user confirmation",
+                        "elicitation_result": "accepted"
+                      }
+                    }
+                  },
+                  "slack_declined": {
+                    "summary": "User declined to post message",
+                    "value": {
+                      "ok": true,
+                      "result": {
+                        "ok": false,
+                        "error": "user_declined",
+                        "elicitation_result": "declined",
+                        "message": "User declined to post the message"
+                      }
+                    }
+                  },
+                  "github_success": {
+                    "summary": "GitHub repository created",
+                    "value": {
+                      "ok": true,
+                      "result": {
+                        "id": 1296269,
+                        "name": "Hello-World",
+                        "full_name": "octocat/Hello-World",
+                        "private": false,
+                        "html_url": "https://github.com/octocat/Hello-World"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - invalid JSON or missing required fields",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "invalid_json": {
+                    "summary": "Invalid JSON body",
+                    "value": {
+                      "error": "Invalid JSON body",
+                      "details": "Unexpected token } in JSON at position 15"
+                    }
+                  },
+                  "missing_name": {
+                    "summary": "Missing tool name",
+                    "value": {
+                      "error": "body must be JSON with field \"name\": string and optional \"arguments\": object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Tool not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "unknown_tool": {
+                    "summary": "Unknown tool",
+                    "value": {
+                      "error": "Unknown tool: invalid_tool_name"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Tool execution failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolExecutionError"
+                },
+                "examples": {
+                  "slack_error": {
+                    "summary": "Slack API error",
+                    "value": {
+                      "ok": false,
+                      "error": "channel_not_found"
+                    }
+                  },
+                  "github_error": {
+                    "summary": "GitHub API error",
+                    "value": {
+                      "ok": false,
+                      "error": "Repository creation failed"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Bearer token authentication for API access"
+      },
+      "apiKeyHeader": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-api-key",
+        "description": "API key authentication via custom header"
+      }
+    },
+    "schemas": {
+      "Tool": {
+        "type": "object",
+        "required": [
+          "name",
+          "description"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Unique identifier for the tool",
+            "examples": [
+              "slack_post_message",
+              "github_create_repository"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "description": "Human-readable description of what the tool does",
+            "examples": [
+              "Post a new message to a Slack channel",
+              "Create a new GitHub repository"
+            ]
+          }
+        }
+      },
+      "ToolCallRequest": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the tool to execute",
+            "examples": [
+              "slack_post_message",
+              "slack_list_channels",
+              "create_repository",
+              "get_file_contents"
+            ]
+          },
+          "arguments": {
+            "type": "object",
+            "description": "Tool-specific arguments",
+            "additionalProperties": true,
+            "examples": [
+              {
+                "channel_id": "C1234567890",
+                "text": "Hello, World!"
+              },
+              {
+                "owner": "octocat",
+                "repo": "Hello-World",
+                "path": "README.md"
+              }
+            ]
+          }
+        }
+      },
+      "ToolCallResponse": {
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Indicates if the tool call was successful"
+          },
+          "result": {
+            "type": "object",
+            "description": "Tool execution result",
+            "additionalProperties": true,
+            "nullable": true
+          }
+        }
+      },
+      "ToolExecutionError": {
+        "type": "object",
+        "required": [
+          "ok",
+          "error"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "enum": [
+              false
+            ],
+            "description": "Always false for error responses"
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message describing what went wrong",
+            "examples": [
+              "channel_not_found",
+              "Repository creation failed",
+              "Missing required arguments"
+            ]
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Error message",
+            "examples": [
+              "Invalid JSON body",
+              "Unknown tool: invalid_tool_name"
+            ]
+          },
+          "details": {
+            "type": "string",
+            "description": "Additional error details",
+            "nullable": true,
+            "examples": [
+              "Unexpected token } in JSON at position 15"
+            ]
+          }
+        }
+      },
+      "SlackChannel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Channel ID",
+            "examples": [
+              "C1234567890"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "description": "Channel name",
+            "examples": [
+              "general",
+              "random"
+            ]
+          },
+          "is_private": {
+            "type": "boolean",
+            "description": "Whether the channel is private"
+          },
+          "topic": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "string",
+                "description": "Channel topic"
+              }
+            }
+          },
+          "purpose": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "string",
+                "description": "Channel purpose"
+              }
+            }
+          }
+        }
+      },
+      "SlackMessage": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "message"
+            ]
+          },
+          "user": {
+            "type": "string",
+            "description": "User ID who sent the message"
+          },
+          "text": {
+            "type": "string",
+            "description": "Message text"
+          },
+          "ts": {
+            "type": "string",
+            "description": "Message timestamp"
+          },
+          "thread_ts": {
+            "type": "string",
+            "description": "Thread timestamp (if reply)",
+            "nullable": true
+          }
+        }
+      },
+      "SlackUser": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "User ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Username"
+          },
+          "real_name": {
+            "type": "string",
+            "description": "Real name"
+          },
+          "profile": {
+            "type": "object",
+            "properties": {
+              "email": {
+                "type": "string",
+                "format": "email",
+                "nullable": true
+              },
+              "display_name": {
+                "type": "string"
+              },
+              "image_72": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          }
+        }
+      },
+      "GitHubRepository": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Repository ID"
+          },
+          "name": {
+            "type": "string",
+            "description": "Repository name"
+          },
+          "full_name": {
+            "type": "string",
+            "description": "Full repository name (owner/repo)"
+          },
+          "private": {
+            "type": "boolean",
+            "description": "Whether the repository is private"
+          },
+          "html_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Repository URL"
+          },
+          "description": {
+            "type": "string",
+            "description": "Repository description",
+            "nullable": true
+          },
+          "default_branch": {
+            "type": "string",
+            "description": "Default branch name",
+            "examples": [
+              "main",
+              "master"
+            ]
+          }
+        }
+      },
+      "GitHubFile": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "File name"
+          },
+          "path": {
+            "type": "string",
+            "description": "File path"
+          },
+          "sha": {
+            "type": "string",
+            "description": "File SHA hash"
+          },
+          "size": {
+            "type": "integer",
+            "description": "File size in bytes"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "API URL for the file"
+          },
+          "html_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Web URL for the file"
+          },
+          "download_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Download URL for the file",
+            "nullable": true
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "file",
+              "dir"
+            ]
+          },
+          "content": {
+            "type": "string",
+            "description": "Base64 encoded file content",
+            "nullable": true
+          },
+          "encoding": {
+            "type": "string",
+            "enum": [
+              "base64"
+            ],
+            "nullable": true
+          }
+        }
+      },
+      "GitHubIssue": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "description": "Issue ID"
+          },
+          "number": {
+            "type": "integer",
+            "description": "Issue number"
+          },
+          "title": {
+            "type": "string",
+            "description": "Issue title"
+          },
+          "body": {
+            "type": "string",
+            "description": "Issue body",
+            "nullable": true
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "closed"
+            ]
+          },
+          "html_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Issue URL"
+          },
+          "user": {
+            "type": "object",
+            "properties": {
+              "login": {
+                "type": "string",
+                "description": "Username"
+              },
+              "html_url": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Bad request",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Unauthorized - invalid or missing authentication",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "examples": {
+              "missing_auth": {
+                "value": {
+                  "error": "Authentication required"
+                }
+              },
+              "invalid_token": {
+                "value": {
+                  "error": "Invalid authentication token"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Forbidden - insufficient permissions",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "examples": {
+              "insufficient_permissions": {
+                "value": {
+                  "error": "Insufficient permissions for this operation"
+                }
+              }
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Resource not found",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "InternalServerError": {
+        "description": "Internal server error",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "examples": {
+              "server_error": {
+                "value": {
+                  "error": "Internal server error",
+                  "details": "An unexpected error occurred"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "examples": {
+      "SlackPostMessageRequest": {
+        "summary": "Post message to Slack channel",
+        "value": {
+          "name": "slack_post_message",
+          "arguments": {
+            "channel_id": "C1234567890",
+            "text": "Hello from MCP API!"
+          }
+        }
+      },
+      "SlackListChannelsRequest": {
+        "summary": "List Slack channels",
+        "value": {
+          "name": "slack_list_channels",
+          "arguments": {
+            "limit": 20,
+            "cursor": "dXNlcjpVMDI3NDVCMkY="
+          }
+        }
+      },
+      "GitHubCreateRepoRequest": {
+        "summary": "Create GitHub repository",
+        "value": {
+          "name": "create_repository",
+          "arguments": {
+            "name": "my-awesome-project",
+            "description": "An awesome project created via MCP API",
+            "private": false,
+            "auto_init": true
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "info",
+      "description": "API information and health endpoints"
+    },
+    {
+      "name": "mcp",
+      "description": "Model Context Protocol tool operations"
+    },
+    {
+      "name": "slack",
+      "description": "Slack integration operations"
+    },
+    {
+      "name": "github",
+      "description": "GitHub integration operations"
+    }
+  ],
+  "externalDocs": {
+    "description": "Model Context Protocol Documentation",
+    "url": "https://modelcontextprotocol.io/docs"
+  }
+}
