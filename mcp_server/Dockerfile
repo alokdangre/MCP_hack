@@ -1,23 +1,33 @@
-# Use Node.js base image
-FROM node:20-alpine
+# --- Base build stage ---
+    FROM node:20-alpine AS build
 
-# Set working directory
-WORKDIR /src
-
-# Copy package.json and lockfile
-COPY package*.json ./
-
-# Install dependencies
-RUN npm install
-
-# Copy rest of the app
-COPY . .
-
-# Build step (if needed)
-RUN npm run build
-
-# Expose port
-EXPOSE 4000
-
-# Start command 
-CMD ["npm", "run", "start:prod"]
+    WORKDIR /src
+    
+    # Install dependencies
+    COPY package*.json ./
+    RUN npm install
+    
+    # Copy source code
+    COPY . .
+    
+    # Build TypeScript
+    RUN npm run build
+    
+    # --- Runtime stage ---
+    FROM node:20-alpine AS runtime
+    
+    WORKDIR /src
+    
+    COPY --from=build /src/package*.json ./
+    COPY --from=build /src/node_modules ./node_modules
+    COPY --from=build /src/dist ./dist
+    
+    # Environment
+    ENV PORT=4000
+    
+    # Expose port for MCP
+    EXPOSE 4000
+    
+    # Start server (http-server.js is your entry)
+    CMD ["node", "dist/http-server.js"]
+    
