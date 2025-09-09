@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "description": "",
   "scripts": {
-    "start": "npm run build && npm run start:node",
-    "server": "npm run build && npm run start:prod",
+    "start": "npm run start:node",
+    "server": "npm run start:prod",
     "build": "tsc -p .",
     "start:prod": "node dist/http-server.js",
     "start:node": "node dist/gateway.js"
