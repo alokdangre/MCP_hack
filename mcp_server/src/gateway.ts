@@ -6,7 +6,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprot
 
 import * as slackService from './services/slack/index.js';
 import * as githubService from './services/github/index.js';
-// import * as googleService from './services/google/index.js';
+import * as googleService from './services/google/index.js';
 
 const server = new Server(
   {
@@ -25,7 +25,7 @@ const server = new Server(
 const tools = [
   ...slackService.tools,
   ...githubService.tools,
-  // ...(googleService.tools ?? []),
+  ...(googleService.tools ?? []),
 ];
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
@@ -47,6 +47,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
     // Many GitHub tools in the original code are not prefixed; handle by explicit mapping inside service
     if (toolName.startsWith('github_') || githubService.toolNames?.includes(toolName)) {
       const res = await githubService.callTool(toolName, args);
+      return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
+    }
+
+    // Handle Google Calendar tools
+    if (toolName.startsWith('google_')) {
+      const res = await googleService.callTool(toolName, args);
       return { content: [{ type: 'text', text: JSON.stringify(res, null, 2) }] };
     }
 
