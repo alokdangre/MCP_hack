@@ -24,6 +24,8 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.5",
     "dotenv": "^16.0.0",
+    "google-auth-library": "^10.3.0",
+    "googleapis": "^159.0.0",
     "universal-user-agent": "^7.0.3",
     "zod": "^3.21.4",
     "zod-to-json-schema": "^3.20.0"
