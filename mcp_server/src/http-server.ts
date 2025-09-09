@@ -90,5 +90,6 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
+  console.log(`🚀 server started - listening on 0.0.0.0:${PORT}`);
   console.error(`HTTP test server listening at http://localhost:${PORT}`);
 });
