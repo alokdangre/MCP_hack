@@ -1,0 +1,9 @@
+project:
+  name: OrgMcp
+  type: nodejs
+  build:
+    command: npm install && npm run build
+  run:
+    command: npm install && npm run server
+  env:
+    PORT: 4000
