@@ -7,4 +7,4 @@ build:
 startCommand:
   type: "http"
   port: 4000
-  command: ["npm", "run", "server"]
+  command: ["npm", "run", "start:prod"]
