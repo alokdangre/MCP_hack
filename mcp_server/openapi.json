@@ -3,12 +3,13 @@
   "info": {
     "title": "mcp-hack API",
     "version": "1.0.0",
-    "description": "MCP (Model Context Protocol) unified gateway server providing HTTP endpoints for Slack and GitHub integrations.\nThis server exposes tools for managing Slack channels, messages, reactions, and GitHub repositories, files, issues, and pull requests.\n\nThe server supports elicitation for user confirmation on certain operations like posting Slack messages.\n",
+    "description": "MCP (Model Context Protocol) unified gateway server providing HTTP endpoints for various services.\nThis server exposes tools for managing Slack, GitHub, Google Calendar, Gmail, and Google Sheets.\n\nThe server supports elicitation for user confirmation on certain operations.\n",
     "contact": {
       "name": "MCP Hack API Support"
     },
     "license": {
-      "name": "ISC"
+      "name": "ISC",
+      "url": "https://opensource.org/licenses/ISC"
     }
   },
   "servers": [
@@ -41,11 +42,11 @@
               "text/plain": {
                 "schema": {
                   "type": "string",
-                  "example": "HTTP test server for MCP gateway\nGET  /tools -> list tools\nPOST /call -> { name, arguments }\n"
+                  "example": "MCP Gateway API\nAvailable endpoints:\n- GET  /tools -> List all available tools\n- POST /call -> Generic tool execution\n- POST /{tool_name} -> Direct tool execution\n"
                 },
                 "examples": {
                   "default": {
-                    "value": "HTTP test server for MCP gateway\nGET  /tools -> list tools\nPOST /call -> { name, arguments }\n"
+                    "value": "MCP Gateway API\nAvailable endpoints:\n- GET  /tools -> List all available tools\n- POST /call -> Generic tool execution\n- POST /{tool_name} -> Direct tool execution\n"
                   }
                 }
               }
@@ -60,7 +61,7 @@
         "summary": "List available tools",
         "description": "Returns a list of all available MCP tools with their names and descriptions",
         "tags": [
-          "mcp"
+          "tools"
         ],
         "responses": {
           "200": {
@@ -71,24 +72,6 @@
                   "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/Tool"
-                  }
-                },
-                "examples": {
-                  "default": {
-                    "value": [
-                      {
-                        "name": "slack_list_channels",
-                        "description": "List public or pre-defined channels in the workspace with pagination"
-                      },
-                      {
-                        "name": "slack_post_message",
-                        "description": "Post a new message to a Slack channel"
-                      },
-                      {
-                        "name": "github_create_repository",
-                        "description": "Create a new GitHub repository"
-                      }
-                    ]
                   }
                 }
               }
@@ -104,9 +87,9 @@
       "post": {
         "operationId": "callTool",
         "summary": "Execute an MCP tool",
-        "description": "Execute a specific MCP tool by name with provided arguments.\nSupports both Slack and GitHub operations with elicitation for user confirmation where applicable.\n",
+        "description": "Execute a specific MCP tool by name with provided arguments.\nSupports operations across Slack, GitHub, Google Calendar, Gmail, and Google Sheets.\n",
         "tags": [
-          "mcp"
+          "tools"
         ],
         "requestBody": {
           "required": true,
@@ -126,34 +109,14 @@
                     }
                   }
                 },
-                "slack_list_channels": {
-                  "summary": "List Slack channels",
+                "google_sheets_read": {
+                  "summary": "Read Google Sheet values",
                   "value": {
-                    "name": "slack_list_channels",
+                    "name": "google_sheets_read",
                     "arguments": {
-                      "limit": 50
-                    }
-                  }
-                },
-                "github_create_repository": {
-                  "summary": "Create GitHub repository",
-                  "value": {
-                    "name": "create_repository",
-                    "arguments": {
-                      "name": "my-new-repo",
-                      "description": "A new repository",
-                      "private": false
-                    }
-                  }
-                },
-                "github_get_file_contents": {
-                  "summary": "Get file contents",
-                  "value": {
-                    "name": "get_file_contents",
-                    "arguments": {
-                      "owner": "octocat",
-                      "repo": "Hello-World",
-                      "path": "README.md"
+                      "user_google_email": "user@example.com",
+                      "spreadsheet_id": "1A2B3C4D...",
+                      "range": "Sheet1!A1:D10"
                     }
                   }
                 }
@@ -163,123 +126,496 @@
         },
         "responses": {
           "200": {
-            "description": "Tool execution successful",
+            "description": "Tool execution result",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ToolCallResponse"
-                },
-                "examples": {
-                  "slack_success": {
-                    "summary": "Slack message posted successfully",
-                    "value": {
-                      "ok": true,
-                      "result": {
-                        "ok": true,
-                        "channel": "C1234567890",
-                        "ts": "1234567890.123456",
-                        "message": "Message posted successfully after user confirmation",
-                        "elicitation_result": "accepted"
-                      }
-                    }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/slack/list-channels": {
+      "post": {
+        "operationId": "slack_list_channels",
+        "summary": "List Slack channels",
+        "description": "List public or pre-defined channels in the workspace with pagination",
+        "tags": [
+          "slack"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "cursor": {
+                    "type": "string",
+                    "description": "Pagination cursor for the next set of results"
                   },
-                  "slack_declined": {
-                    "summary": "User declined to post message",
-                    "value": {
-                      "ok": true,
-                      "result": {
-                        "ok": false,
-                        "error": "user_declined",
-                        "elicitation_result": "declined",
-                        "message": "User declined to post the message"
-                      }
-                    }
+                  "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of channels to return",
+                    "default": 100
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "List of channels",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackChannelList"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/slack/post-message": {
+      "post": {
+        "operationId": "slack_post_message",
+        "summary": "Post a message to Slack",
+        "description": "Post a new message to a Slack channel",
+        "tags": [
+          "slack"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "channel_id",
+                  "text"
+                ],
+                "properties": {
+                  "channel_id": {
+                    "type": "string",
+                    "description": "The ID of the channel to post to"
                   },
-                  "github_success": {
-                    "summary": "GitHub repository created",
-                    "value": {
-                      "ok": true,
-                      "result": {
-                        "id": 1296269,
-                        "name": "Hello-World",
-                        "full_name": "octocat/Hello-World",
-                        "private": false,
-                        "html_url": "https://github.com/octocat/Hello-World"
-                      }
-                    }
+                  "text": {
+                    "type": "string",
+                    "description": "The message text"
+                  },
+                  "blocks": {
+                    "type": "array",
+                    "description": "Message blocks (rich formatting)"
+                  },
+                  "thread_ts": {
+                    "type": "string",
+                    "description": "Thread timestamp to reply to"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Message posted successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackMessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/github/create-repository": {
+      "post": {
+        "operationId": "github_create_repository",
+        "summary": "Create a new GitHub repository",
+        "description": "Create a new GitHub repository",
+        "tags": [
+          "github"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Name of the new repository"
+                  },
+                  "description": {
+                    "type": "string",
+                    "description": "Repository description"
+                  },
+                  "private": {
+                    "type": "boolean",
+                    "description": "Whether the repository should be private",
+                    "default": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Repository created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubRepository"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/google/sheets/list": {
+      "post": {
+        "operationId": "google_sheets_list",
+        "summary": "List Google Sheets",
+        "description": "List spreadsheets from Google Drive that the user has access to",
+        "tags": [
+          "google_sheets"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "user_google_email"
+                ],
+                "properties": {
+                  "user_google_email": {
+                    "type": "string",
+                    "format": "email",
+                    "description": "User's Google email"
+                  },
+                  "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of results to return",
+                    "default": 25
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "List of spreadsheets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GoogleSheet"
                   }
                 }
               }
             }
           },
           "400": {
-            "description": "Bad request - invalid JSON or missing required fields",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                },
-                "examples": {
-                  "invalid_json": {
-                    "summary": "Invalid JSON body",
-                    "value": {
-                      "error": "Invalid JSON body",
-                      "details": "Unexpected token } in JSON at position 15"
-                    }
-                  },
-                  "missing_name": {
-                    "summary": "Missing tool name",
-                    "value": {
-                      "error": "body must be JSON with field \"name\": string and optional \"arguments\": object"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Tool not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                },
-                "examples": {
-                  "unknown_tool": {
-                    "summary": "Unknown tool",
-                    "value": {
-                      "error": "Unknown tool: invalid_tool_name"
-                    }
-                  }
-                }
-              }
-            }
+            "$ref": "#/components/responses/BadRequest"
           },
           "500": {
-            "description": "Tool execution failed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ToolExecutionError"
-                },
-                "examples": {
-                  "slack_error": {
-                    "summary": "Slack API error",
-                    "value": {
-                      "ok": false,
-                      "error": "channel_not_found"
-                    }
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/google/sheets/read": {
+      "post": {
+        "operationId": "google_sheets_read",
+        "summary": "Read values from a Google Sheet",
+        "description": "Reads values from a specific range in a Google Sheet",
+        "tags": [
+          "google_sheets"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "user_google_email",
+                  "spreadsheet_id"
+                ],
+                "properties": {
+                  "user_google_email": {
+                    "type": "string",
+                    "format": "email",
+                    "description": "User's Google email"
                   },
-                  "github_error": {
-                    "summary": "GitHub API error",
-                    "value": {
-                      "ok": false,
-                      "error": "Repository creation failed"
-                    }
+                  "spreadsheet_id": {
+                    "type": "string",
+                    "description": "ID of the spreadsheet"
+                  },
+                  "range": {
+                    "type": "string",
+                    "description": "Range to read (e.g., \"A1:B2\", \"Sheet1!A1:Z1000\")",
+                    "default": "A1:Z1000"
                   }
                 }
               }
             }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sheet values",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleSheetValues"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/google/sheets/modify": {
+      "post": {
+        "operationId": "google_sheets_modify",
+        "summary": "Modify values in a Google Sheet",
+        "description": "Modifies values in a specific range of a Google Sheet",
+        "tags": [
+          "google_sheets"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "user_google_email",
+                  "spreadsheet_id",
+                  "range"
+                ],
+                "properties": {
+                  "user_google_email": {
+                    "type": "string",
+                    "format": "email",
+                    "description": "User's Google email"
+                  },
+                  "spreadsheet_id": {
+                    "type": "string",
+                    "description": "ID of the spreadsheet"
+                  },
+                  "range": {
+                    "type": "string",
+                    "description": "Range to modify (e.g., \"A1:B2\", \"Sheet1!A1\")"
+                  },
+                  "values": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "any"
+                      }
+                    },
+                    "description": "2D array of values to write"
+                  },
+                  "value_input_option": {
+                    "type": "string",
+                    "enum": [
+                      "RAW",
+                      "USER_ENTERED"
+                    ],
+                    "default": "USER_ENTERED",
+                    "description": "How to interpret input values"
+                  },
+                  "clear_values": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "If true, clears the range instead of writing values"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Values modified successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoogleSheetUpdateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/google/calendar/list-calendars": {
+      "post": {
+        "operationId": "google_calendar_list_calendars",
+        "summary": "List Google Calendars",
+        "description": "List all calendars accessible to the authenticated user",
+        "tags": [
+          "google_calendar"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "user_google_email"
+                ],
+                "properties": {
+                  "user_google_email": {
+                    "type": "string",
+                    "format": "email",
+                    "description": "User's Google email"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "List of calendars",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GoogleCalendar"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/gmail/search-messages": {
+      "post": {
+        "operationId": "gmail_search_messages",
+        "summary": "Search Gmail messages",
+        "description": "Search for messages in Gmail",
+        "tags": [
+          "gmail"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "user_google_email",
+                  "query"
+                ],
+                "properties": {
+                  "user_google_email": {
+                    "type": "string",
+                    "format": "email",
+                    "description": "User's Google email"
+                  },
+                  "query": {
+                    "type": "string",
+                    "description": "Gmail search query"
+                  },
+                  "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of results to return",
+                    "default": 10
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "List of matching messages",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GmailMessage"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
           }
         }
       }
@@ -300,6 +636,45 @@
       }
     },
     "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "integer",
+                "format": "int32",
+                "description": "HTTP status code"
+              },
+              "message": {
+                "type": "string",
+                "description": "Error message"
+              },
+              "details": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                },
+                "description": "Additional error details"
+              }
+            }
+          }
+        }
+      },
+      "ToolExecutionError": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "Indicates if the operation was successful"
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message or error code"
+          }
+        }
+      },
       "Tool": {
         "type": "object",
         "required": [
@@ -361,68 +736,22 @@
       },
       "ToolCallResponse": {
         "type": "object",
-        "required": [
-          "ok"
-        ],
         "properties": {
-          "ok": {
-            "type": "boolean",
-            "description": "Indicates if the tool call was successful"
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "error"
+            ]
           },
           "result": {
             "type": "object",
-            "description": "Tool execution result",
             "additionalProperties": true,
-            "nullable": true
-          }
-        }
-      },
-      "ToolExecutionError": {
-        "type": "object",
-        "required": [
-          "ok",
-          "error"
-        ],
-        "properties": {
-          "ok": {
-            "type": "boolean",
-            "enum": [
-              false
-            ],
-            "description": "Always false for error responses"
+            "description": "Result of the tool execution"
           },
           "error": {
             "type": "string",
-            "description": "Error message describing what went wrong",
-            "examples": [
-              "channel_not_found",
-              "Repository creation failed",
-              "Missing required arguments"
-            ]
-          }
-        }
-      },
-      "ErrorResponse": {
-        "type": "object",
-        "required": [
-          "error"
-        ],
-        "properties": {
-          "error": {
-            "type": "string",
-            "description": "Error message",
-            "examples": [
-              "Invalid JSON body",
-              "Unknown tool: invalid_tool_name"
-            ]
-          },
-          "details": {
-            "type": "string",
-            "description": "Additional error details",
-            "nullable": true,
-            "examples": [
-              "Unexpected token } in JSON at position 15"
-            ]
+            "description": "Error message if status is error"
           }
         }
       },
@@ -448,85 +777,51 @@
             "type": "boolean",
             "description": "Whether the channel is private"
           },
-          "topic": {
-            "type": "object",
-            "properties": {
-              "value": {
-                "type": "string",
-                "description": "Channel topic"
-              }
+          "is_archived": {
+            "type": "boolean",
+            "description": "Whether the channel is archived"
+          }
+        }
+      },
+      "SlackChannelList": {
+        "type": "object",
+        "properties": {
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SlackChannel"
             }
           },
-          "purpose": {
+          "response_metadata": {
             "type": "object",
             "properties": {
-              "value": {
+              "next_cursor": {
                 "type": "string",
-                "description": "Channel purpose"
+                "description": "Pagination cursor for the next page of results"
               }
             }
           }
         }
       },
-      "SlackMessage": {
+      "SlackMessageResponse": {
         "type": "object",
         "properties": {
-          "type": {
-            "type": "string",
-            "enum": [
-              "message"
-            ]
+          "ok": {
+            "type": "boolean",
+            "description": "Whether the operation was successful"
           },
-          "user": {
+          "channel": {
             "type": "string",
-            "description": "User ID who sent the message"
-          },
-          "text": {
-            "type": "string",
-            "description": "Message text"
+            "description": "Channel ID where the message was posted"
           },
           "ts": {
             "type": "string",
-            "description": "Message timestamp"
+            "description": "Timestamp of the message"
           },
-          "thread_ts": {
-            "type": "string",
-            "description": "Thread timestamp (if reply)",
-            "nullable": true
-          }
-        }
-      },
-      "SlackUser": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "User ID"
-          },
-          "name": {
-            "type": "string",
-            "description": "Username"
-          },
-          "real_name": {
-            "type": "string",
-            "description": "Real name"
-          },
-          "profile": {
+          "message": {
             "type": "object",
-            "properties": {
-              "email": {
-                "type": "string",
-                "format": "email",
-                "nullable": true
-              },
-              "display_name": {
-                "type": "string"
-              },
-              "image_72": {
-                "type": "string",
-                "format": "uri"
-              }
-            }
+            "additionalProperties": true,
+            "description": "Message object"
           }
         }
       },
@@ -552,130 +847,162 @@
           "html_url": {
             "type": "string",
             "format": "uri",
-            "description": "Repository URL"
+            "description": "URL to the repository on GitHub"
           },
           "description": {
             "type": "string",
-            "description": "Repository description",
-            "nullable": true
+            "nullable": true,
+            "description": "Repository description"
           },
-          "default_branch": {
-            "type": "string",
-            "description": "Default branch name",
-            "examples": [
-              "main",
-              "master"
-            ]
-          }
-        }
-      },
-      "GitHubFile": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "description": "File name"
-          },
-          "path": {
-            "type": "string",
-            "description": "File path"
-          },
-          "sha": {
-            "type": "string",
-            "description": "File SHA hash"
-          },
-          "size": {
-            "type": "integer",
-            "description": "File size in bytes"
+          "fork": {
+            "type": "boolean",
+            "description": "Whether the repository is a fork"
           },
           "url": {
             "type": "string",
             "format": "uri",
-            "description": "API URL for the file"
-          },
-          "html_url": {
-            "type": "string",
-            "format": "uri",
-            "description": "Web URL for the file"
-          },
-          "download_url": {
-            "type": "string",
-            "format": "uri",
-            "description": "Download URL for the file",
-            "nullable": true
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "file",
-              "dir"
-            ]
-          },
-          "content": {
-            "type": "string",
-            "description": "Base64 encoded file content",
-            "nullable": true
-          },
-          "encoding": {
-            "type": "string",
-            "enum": [
-              "base64"
-            ],
-            "nullable": true
+            "description": "API URL for the repository"
           }
         }
       },
-      "GitHubIssue": {
+      "GoogleSheet": {
         "type": "object",
         "properties": {
           "id": {
-            "type": "integer",
-            "description": "Issue ID"
-          },
-          "number": {
-            "type": "integer",
-            "description": "Issue number"
-          },
-          "title": {
             "type": "string",
-            "description": "Issue title"
+            "description": "The ID of the spreadsheet"
           },
-          "body": {
+          "name": {
             "type": "string",
-            "description": "Issue body",
-            "nullable": true
+            "description": "The name of the spreadsheet"
           },
-          "state": {
+          "modifiedTime": {
             "type": "string",
-            "enum": [
-              "open",
-              "closed"
-            ]
+            "format": "date-time",
+            "description": "When the spreadsheet was last modified"
           },
-          "html_url": {
+          "webViewLink": {
             "type": "string",
             "format": "uri",
-            "description": "Issue URL"
+            "description": "URL to view the spreadsheet in a browser"
+          }
+        }
+      },
+      "GoogleSheetValues": {
+        "type": "object",
+        "properties": {
+          "range": {
+            "type": "string",
+            "description": "The range the values cover"
           },
-          "user": {
-            "type": "object",
-            "properties": {
-              "login": {
-                "type": "string",
-                "description": "Username"
-              },
-              "html_url": {
-                "type": "string",
-                "format": "uri"
+          "majorDimension": {
+            "type": "string",
+            "enum": [
+              "ROWS",
+              "COLUMNS"
+            ],
+            "description": "The major dimension of the values"
+          },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "any"
               }
-            }
+            },
+            "description": "The values in the range"
+          }
+        }
+      },
+      "GoogleSheetUpdateResponse": {
+        "type": "object",
+        "properties": {
+          "spreadsheetId": {
+            "type": "string",
+            "description": "The ID of the spreadsheet"
+          },
+          "updatedRange": {
+            "type": "string",
+            "description": "The range that was updated"
+          },
+          "updatedRows": {
+            "type": "integer",
+            "description": "Number of rows updated"
+          },
+          "updatedColumns": {
+            "type": "integer",
+            "description": "Number of columns updated"
+          },
+          "updatedCells": {
+            "type": "integer",
+            "description": "Number of cells updated"
+          }
+        }
+      },
+      "GoogleCalendar": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Calendar ID"
+          },
+          "summary": {
+            "type": "string",
+            "description": "Calendar name"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true,
+            "description": "Calendar description"
+          },
+          "timeZone": {
+            "type": "string",
+            "description": "Timezone of the calendar"
+          },
+          "primary": {
+            "type": "boolean",
+            "description": "Whether this is the primary calendar"
+          },
+          "accessRole": {
+            "type": "string",
+            "description": "User's access level to the calendar"
+          }
+        }
+      },
+      "GmailMessage": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Message ID"
+          },
+          "threadId": {
+            "type": "string",
+            "description": "Thread ID"
+          },
+          "labelIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List of label IDs"
+          },
+          "snippet": {
+            "type": "string",
+            "description": "A short part of the message text"
+          },
+          "internalDate": {
+            "type": "string",
+            "format": "int64",
+            "description": "Internal date the message was received"
           }
         }
       }
     },
     "responses": {
       "BadRequest": {
-        "description": "Bad request",
+        "description": "Bad request - The request was invalid or cannot be served",
         "content": {
           "application/json": {
             "schema": {
@@ -685,46 +1012,27 @@
         }
       },
       "Unauthorized": {
-        "description": "Unauthorized - invalid or missing authentication",
+        "description": "Unauthorized - Authentication is required and has failed or has not been provided",
         "content": {
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/ErrorResponse"
-            },
-            "examples": {
-              "missing_auth": {
-                "value": {
-                  "error": "Authentication required"
-                }
-              },
-              "invalid_token": {
-                "value": {
-                  "error": "Invalid authentication token"
-                }
-              }
             }
           }
         }
       },
       "Forbidden": {
-        "description": "Forbidden - insufficient permissions",
+        "description": "Forbidden - The request was valid but the server is refusing action",
         "content": {
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/ErrorResponse"
-            },
-            "examples": {
-              "insufficient_permissions": {
-                "value": {
-                  "error": "Insufficient permissions for this operation"
-                }
-              }
             }
           }
         }
       },
       "NotFound": {
-        "description": "Resource not found",
+        "description": "Not Found - The requested resource could not be found",
         "content": {
           "application/json": {
             "schema": {
@@ -734,54 +1042,12 @@
         }
       },
       "InternalServerError": {
-        "description": "Internal server error",
+        "description": "Internal Server Error - An unexpected error occurred",
         "content": {
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/ErrorResponse"
-            },
-            "examples": {
-              "server_error": {
-                "value": {
-                  "error": "Internal server error",
-                  "details": "An unexpected error occurred"
-                }
-              }
             }
-          }
-        }
-      }
-    },
-    "examples": {
-      "SlackPostMessageRequest": {
-        "summary": "Post message to Slack channel",
-        "value": {
-          "name": "slack_post_message",
-          "arguments": {
-            "channel_id": "C1234567890",
-            "text": "Hello from MCP API!"
-          }
-        }
-      },
-      "SlackListChannelsRequest": {
-        "summary": "List Slack channels",
-        "value": {
-          "name": "slack_list_channels",
-          "arguments": {
-            "limit": 20,
-            "cursor": "dXNlcjpVMDI3NDVCMkY="
-          }
-        }
-      },
-      "GitHubCreateRepoRequest": {
-        "summary": "Create GitHub repository",
-        "value": {
-          "name": "create_repository",
-          "arguments": {
-            "name": "my-awesome-project",
-            "description": "An awesome project created via MCP API",
-            "private": false,
-            "auto_init": true
           }
         }
       }
